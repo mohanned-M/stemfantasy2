@@ -1,87 +1,64 @@
 const express = require('express');
-const cors = require('cors');
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const fs = require('fs').promises;
 const path = require('path');
+const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const JWT_SECRET = 'your-secret-key-change-this-in-production';
+const PORT = process.env.PORT || 8080;
+const JWT_SECRET = 'your-very-secret-key-change-this';
 
-// Middleware
 app.use(cors());
 app.use(express.json());
-
-// Data file path
-const DATA_FILE = path.join(__dirname, 'data.json');
-
-// Initialize data file if it doesn't exist
-async function initializeData() {
-    try {
-        await fs.access(DATA_FILE);
-    } catch (error) {
-        // File doesn't exist, create it with initial data
-        const initialData = { /* ... same as yours ... */ };
-        await fs.writeFile(DATA_FILE, JSON.stringify(initialData, null, 2));
-    }
-}
-
-// Read data from file
-async function readData() {
-    try {
-        const data = await fs.readFile(DATA_FILE, 'utf8');
-        return JSON.parse(data);
-    } catch (error) {
-        console.error('Error reading data:', error);
-        return null;
-    }
-}
-
-// Write data to file
-async function writeData(data) {
-    try {
-        await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
-        return true;
-    } catch (error) {
-        console.error('Error writing data:', error);
-        return false;
-    }
-}
-
-// Middleware to verify JWT token
-function authenticateToken(req, res, next) {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-
-    if (!token) {
-        return res.status(401).json({ error: 'Access token required' });
-    }
-
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) {
-            return res.status(403).json({ error: 'Invalid token' });
-        }
-        req.user = user;
-        next();
-    });
-}
-
-// Routes (same as yours)
-// ... register, login, get game data, update game data, get profile ...
-
-// Serve static files from "public" folder
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Simple in-memory user store for demonstration
+let users = [];
+
+// --- Routes ---
+
+// Register endpoint
+app.post('/api/register', async (req, res) => {
+    const { username, password, email } = req.body;
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password required.' });
+    }
+    if (users.some(u => u.username === username)) {
+        return res.status(409).json({ error: 'Username already exists.' });
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    users.push({ username, password: hashedPassword, email: email || '' });
+    return res.json({ message: 'Registration successful.' });
+});
+
+// Login endpoint
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    const user = users.find(u => u.username === username);
+    if (!user) {
+        return res.status(401).json({ error: 'Invalid credentials.' });
+    }
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
+        return res.status(401).json({ error: 'Invalid credentials.' });
+    }
+    // Optional: Issue JWT
+    const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '24h' });
+    return res.json({ message: 'Login successful.', token, user: { username, email: user.email } });
+});
+
+// Example protected endpoint
+app.get('/api/profile', (req, res) => {
+    // In production, verify JWT here!
+    res.json({ message: 'Profile endpoint works!' });
+});
+
+// Serve index.html on root
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'stemfantasy.html'));
 });
 
 // Start server
-async function startServer() {
-    await initializeData();
-    app.listen(PORT, () => {
-        console.log(`Server running on http://localhost:${PORT}`);
-    });
-}
-
-startServer().catch(console.error);
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
